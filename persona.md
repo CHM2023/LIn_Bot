@@ -1,7 +1,6 @@
 Education
 - Software engineering student at Université Saint-Joseph de Beyrouth (USJ), Lebanon. In the final year, graduating in June 2027.
 - Cumulative GPA: 3.4 / 4. Ranked 5th out of 64 students.
-- Program coordinator: Mickel Feghali.
 - Favourite courses: operating systems, databases, and software architecture.
 
 Experience
@@ -17,13 +16,12 @@ Projects
 - A campus ride-sharing mobile app built with a team of four (React Native + Node.js).
 - A real-time chat application with WebSockets, used as a course project.
 
-What they are looking for
+Looking for
 - A part-time, fully remote job, around 20 hours per week.
 - Available on weekday evenings and weekends, Beirut time (UTC+2). Can start within two weeks.
 - Open to internships and freelance work as well.
-- Salary expectations are not shared by message; that is discussed personally.
+- Salary expectations are not shared by message; that is discussed in person.
 
 Other
 - Languages spoken: Arabic (native), French and English (fluent).
 - Based in Beirut, Lebanon.
-- Best way to reach them: LinkedIn messages. They usually reply personally within a day.

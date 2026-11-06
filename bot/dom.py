@@ -129,25 +129,51 @@ READ_THREAD_JS = """
     items = Array.from(document.querySelectorAll(s));
     if (items.length) break;
   }
+  // What a message carries besides text: an image, a file, a voice note...
+  // Profile pictures and emoji inside the text do not count.
+  const HEADER_IMAGE = /profile|avatar|presence|ghost|entity/i;
+  const extras = (item, body) => {
+    const outside = (node) => !(body && body.contains(node));
+    if (item.querySelector('audio, [class*="audio"], [class*="voice"]')) return 'voice message';
+    if (item.querySelector('video, [class*="video"]')) return 'video';
+    const file = Array.from(
+      item.querySelectorAll('[class*="attachment"], a[download], a[href*="/dms/"]')
+    ).find(outside);
+    if (file) return 'file' + (text(file) ? ': ' + text(file).slice(0, 80) : '');
+    const image = Array.from(item.querySelectorAll('img')).find((img) =>
+      outside(img) && !img.closest('a[href*="/in/"]') && !HEADER_IMAGE.test(img.className || ''));
+    return image ? 'image' : '';
+  };
+
   const messages = [];
   let senderName = '';
   let senderId = '';
   for (const item of items) {
     const body = first(item, sel.body) ||
       (item.querySelectorAll('p').length === 1 ? item.querySelector('p') : null);
-    if (!body) continue; // date separators and system notices
+    const extra = extras(item, body);
+    if (!body && !extra) continue; // date separators and system notices
+    // Emoji can be rendered as images: fall back to their alt text.
+    let content = body
+      ? text(body) || Array.from(body.querySelectorAll('img[alt]')).map((i) => i.alt).join(' ')
+      : '';
+    if (extra) {
+      content = content
+        ? content + ' [+ attachment or link preview]'
+        : '[sent ' + (/^i/.test(extra) ? 'an ' : 'a ') + extra + ', no text]';
+    }
     const scope = item.closest('li') || item;
 
     // LinkedIn heads the first message of a group with links to its sender's
     // profile; follow-ups from the same sender have no header. Links inside
     // the message text itself must not count.
     let bubble = body;
-    for (let hops = 0; hops < 2; hops++) {
+    for (let hops = 0; bubble && hops < 2; hops++) {
       const up = bubble.parentElement;
       if (up && up !== item && item.contains(up)) bubble = up;
     }
     const links = Array.from(scope.querySelectorAll('a[href*="/in/"]'))
-      .filter((anchor) => !bubble.contains(anchor));
+      .filter((anchor) => !(bubble && bubble.contains(anchor)));
     const nameEl = first(scope, sel.sender);
     if (links.length) {
       senderId = profileId(links[0]);
@@ -167,7 +193,7 @@ READ_THREAD_JS = """
 
     messages.push({
       sender: senderName,
-      text: text(body),
+      text: content,
       mine: member && senderId ? senderId === member : null,
       marked: item.classList.contains(sel.marker) || !!scope.querySelector('.' + sel.marker),
     });

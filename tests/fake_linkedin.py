@@ -88,8 +88,18 @@ send.className = cls('msg-form__send-button');
 
 function snippet(thread) {{
   const last = thread.messages[thread.messages.length - 1];
+  if (last.image) return thread.name + ' sent an attachment';
   return (last.mine ? 'You: ' : '') + last.text;
 }}
+
+// Used by tests: a message arrives in the open conversation without a reload,
+// as it does on the real site.
+window.fakeIncoming = (text) => {{
+  const thread = DATA.threads.find((t) => t.id === current);
+  thread.messages.push({{ mine: false, text }});
+  renderList();
+  renderThread();
+}};
 
 function renderList() {{
   list.replaceChildren();
@@ -157,13 +167,23 @@ function renderThread() {{
       meta.appendChild(el('time', '', '10:42 AM'));
       item.appendChild(meta);
     }}
-    const bubble = el('div', cls('msg-s-event-listitem__message-bubble'));
-    const content = el('div', cls('msg-s-event__content'));
-    const body = el('p', cls('msg-s-event-listitem__body'), message.text);
-    body.style.whiteSpace = 'pre-wrap';
-    content.appendChild(body);
-    bubble.appendChild(content);
-    item.appendChild(bubble);
+    if (message.image) {{
+      // A picture with no text: there is no <p> at all.
+      const holder = el('div', cls('msg-s-event-listitem__image-container'));
+      const picture = el('img', cls('msg-s-event-listitem__image'));
+      picture.alt = '';
+      picture.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+      holder.appendChild(picture);
+      item.appendChild(holder);
+    }} else {{
+      const bubble = el('div', cls('msg-s-event-listitem__message-bubble'));
+      const content = el('div', cls('msg-s-event__content'));
+      const body = el('p', cls('msg-s-event-listitem__body'), message.text);
+      body.style.whiteSpace = 'pre-wrap';
+      content.appendChild(body);
+      bubble.appendChild(content);
+      item.appendChild(bubble);
+    }}
     li.appendChild(item);
     events.appendChild(li);
     previous = message.mine;
@@ -256,12 +276,15 @@ class FakeLinkedIn:
         }
 
     # --- things the test can make happen ------------------------------------
-    def receive(self, name: str, text: str, mine: bool = False, locked: bool = False) -> None:
-        """A message arrives (or, with mine=True, the owner writes from their phone)."""
+    def receive(
+        self, name: str, text: str, mine: bool = False, locked: bool = False, image: bool = False
+    ) -> None:
+        """A message arrives (or, with mine=True, the owner writes from their phone).
+        With image=True it is a picture with no text."""
         thread = next((t for t in self.threads if t["name"] == name), None)
         if thread is None:
             thread = self._thread(name, [], locked)
-        thread["messages"].append({"mine": mine, "text": text})
+        thread["messages"].append({"mine": mine, "text": text, "image": image})
         self.threads = [thread] + [t for t in self.threads if t is not thread]
 
     # --- plumbing -----------------------------------------------------------

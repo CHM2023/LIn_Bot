@@ -32,7 +32,10 @@ from .state import State
 
 log = logging.getLogger("bot.messaging")
 
-MAX_TRIES_PER_CONVERSATION = 3
+# A conversation that cannot be handled is retried on every poll for a long
+# while: staying silent is the worst outcome, and the reply limits already
+# bound what a retry can do.
+MAX_TRIES_PER_CONVERSATION = 40
 BASELINE_CHECKS = 3
 
 
@@ -64,6 +67,22 @@ def same_name(a: str, b: str) -> bool:
     return _normalise(a) == _normalise(b)
 
 
+def same_text(a: str, b: str) -> bool:
+    """The same message, comparing letters and digits only.
+
+    LinkedIn's editor may restyle what is typed (emoji, quotes, spaces), so
+    punctuation and symbols are left out of the comparison. Two texts with no
+    letters at all (emoji only) count as the same when both are non-empty.
+    """
+
+    def letters(text: str) -> str:
+        return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+    if letters(a) or letters(b):
+        return letters(a) == letters(b)
+    return bool(a.strip()) and bool(b.strip())
+
+
 # --- 1. read the list --------------------------------------------------------
 def list_conversations(page: Page, settings: Settings) -> tuple[bool, list[Card]]:
     """Return (did the messaging page load, the conversations on screen)."""
@@ -72,9 +91,9 @@ def list_conversations(page: Page, settings: Settings) -> tuple[bool, list[Card]
         page.wait_for_selector(
             f"{dom.CONVERSATION_ROWS}, {dom.CONVERSATION_ROWS_BY_CLASS}",
             state="attached",
-            timeout=settings.render_wait_ms * 2,
+            timeout=settings.render_wait_ms * 3,
         )
-        pause(page, settings, 0.8, 1.5)
+        pause(page, settings, 0.4, 0.8)
     except PlaywrightTimeout:
         pass
     result = page.evaluate(dom.LIST_CONVERSATIONS_JS, dom.CONVERSATION)
@@ -267,7 +286,7 @@ def _write(page: Page, box: Locator, text: str, settings: Settings) -> str:
                 page.keyboard.press("Shift+Enter")  # new line without sending
             if line:
                 enter(line)
-        if _normalise(box.inner_text()) == _normalise(text) and _ready_to_send(page, box):
+        if same_text(box.inner_text(), text) and _ready_to_send(page, box):
             return name
         _clear_box(page)
     return ""
@@ -285,7 +304,7 @@ def send_reply(page: Page, text: str, settings: Settings) -> bool:
     _clear_box(page)  # a leftover draft must not be sent along
     if not _write(page, box, text, settings):
         return False
-    pause(page, settings, 0.3, 0.8)
+    pause(page, settings, 0.1, 0.3)
 
     button = _send_button(page, box)
     if button is None:
@@ -336,7 +355,7 @@ def confirm_sent(page: Page, reply: str, owner: str, settings: Settings) -> str:
     for _ in range(15):
         page.wait_for_timeout(max(60, 300 * settings.pace))
         raw = read_thread(page)["messages"]
-        if not raw or _normalise(raw[-1]["text"]) != _normalise(reply):
+        if not raw or not same_text(raw[-1]["text"], reply):
             continue
         seen = True
         messages = resolve_directions(raw, owner)
@@ -381,7 +400,7 @@ def answer(
     last = messages[-1]
     # Second, independent check against answering ourselves: the last message
     # is word for word the reply we sent last in this conversation.
-    is_own_reply = _normalise(last.text) == _normalise(state.last_reply.get(thread, "\0"))
+    is_own_reply = thread in state.last_reply and same_text(last.text, state.last_reply[thread])
     if not last.incoming or is_own_reply:
         state.remember(card.name, card.snippet)
         return "nothing to answer"
@@ -395,18 +414,32 @@ def answer(
         state.remember(card.name, card.snippet)
         return "thread limit"
 
-    reply = responder.reply(
-        card.name,
-        messages[-settings.history_messages :],
-        owner=owner,
-        first_reply=not state.has_replied(thread),
-    )
+    def write_reply() -> str:
+        return responder.reply(
+            card.name,
+            messages[-settings.history_messages :],
+            owner=owner,
+            first_reply=not state.has_replied(thread),
+        )
+
+    reply = write_reply()
+    # People often send several messages in a row. If more arrived while the
+    # reply was being written, write it again so that it answers all of them.
+    for _ in range(2):
+        latest = read_thread(page)
+        newer = resolve_directions(latest["messages"], owner)
+        unchanged = latest["messages"] == raw["messages"]
+        if unchanged or newer is None or not newer[-1].incoming or not _thread_matches(card, latest):
+            break
+        raw, messages = latest, newer
+        reply = write_reply()
+
     if settings.dry_run:
         log.info("[dry-run] would reply to %s: %s", card.name, reply)
         state.remember(card.name, card.snippet)
         return "dry run"
 
-    pause(page, settings, 1.0, 2.5)
+    pause(page, settings, 0.2, 0.6)
     if not send_reply(page, reply, settings):
         return _failed(card, state, "the reply could not be sent")
     state.record_reply(thread_key(page.url, thread), reply)

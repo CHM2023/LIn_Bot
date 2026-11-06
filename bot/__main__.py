@@ -59,17 +59,26 @@ def setup_logging(settings: Settings, verbose: bool) -> None:
 
 
 def run_cycle(
-    context: BrowserContext, page: Page, settings: Settings, state: State, responder: Responder
-) -> None:
-    """One poll: accept invitations, then answer new messages."""
-    accept_pending(page, settings, state)
+    context: BrowserContext,
+    page: Page,
+    settings: Settings,
+    state: State,
+    responder: Responder,
+    check_invitations: bool = True,
+) -> bool:
+    """One poll: accept invitations, then answer new messages.
+
+    Returns True when something happened (an invitation accepted or a reply
+    sent), which makes the loop poll faster for a while.
+    """
+    accepted = accept_pending(page, settings, state) if check_invitations else []
+    state.save()
+    sent = process_inbox(page, settings, state, responder)
     state.save()
     if not is_logged_in(context, page, settings):
         log.warning("The LinkedIn session ended; a new sign-in is needed.")
         ensure_logged_in(context, page, settings)
-        return
-    process_inbox(page, settings, state, responder)
-    state.save()
+    return bool(accepted) or sent > 0
 
 
 def bind_to_account(state: State, account: str, settings: Settings) -> State:
@@ -101,9 +110,25 @@ def cmd_run(settings: Settings, once: bool) -> int:
                 "Bot is running%s. Press Ctrl+C to stop.",
                 " in DRY-RUN mode (nothing is accepted or sent)" if settings.dry_run else "",
             )
+            last_activity = 0.0
+            cycle = 0
             while True:
+                cycle += 1
+                # During a conversation the bot polls fast and looks at the
+                # invitations page only every third poll; when nothing has
+                # happened for a while it slows down again.
+                active = time.time() - last_activity < settings.active_minutes * 60
                 try:
-                    run_cycle(context, page, settings, state, responder)
+                    if run_cycle(
+                        context,
+                        page,
+                        settings,
+                        state,
+                        responder,
+                        check_invitations=not active or cycle % 3 == 0,
+                    ):
+                        last_activity = time.time()
+                        active = True
                 except PlaywrightError as error:
                     log.warning("Poll failed: %s", str(error).splitlines()[0])
                     if page.is_closed():
@@ -114,7 +139,8 @@ def cmd_run(settings: Settings, once: bool) -> int:
                             return 1
                 if once:
                     return 0
-                time.sleep(settings.poll_seconds * random.uniform(0.8, 1.3))
+                delay = settings.active_poll_seconds if active else settings.poll_seconds
+                time.sleep(delay * random.uniform(0.8, 1.3))
         except KeyboardInterrupt:
             log.info("Stopping.")
             return 0

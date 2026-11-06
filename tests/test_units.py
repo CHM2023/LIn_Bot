@@ -11,6 +11,7 @@ from bot.messaging import (
     pick_candidates,
     resolve_directions,
     same_person,
+    same_text,
     thread_key,
 )
 from bot.replies import Message, build_system_prompt, build_user_prompt, fallback_reply, tidy
@@ -195,25 +196,39 @@ def test_failures_reset_once_remembered():
 
 # --- replies -----------------------------------------------------------------
 def test_fallback_reply():
-    assert fallback_reply("Jane Doe", "Charbel Test", disclose=True) == (
-        "Hi Jane, thanks for your message! This is an automated reply. "
-        "Charbel will get back to you personally soon."
+    assert fallback_reply("Jane Doe", disclose=False) == (
+        "Hey Jane, thanks for the message! Bit tied up right now, I'll get back to you properly soon."
     )
-    assert fallback_reply("", "", disclose=False) == (
-        "Hi, thanks for your message! I'll get back to you personally soon."
-    )
+    assert fallback_reply("", disclose=True).endswith("(This is an automatic reply.)")
+    # The wording rotates, so the same sentence is not sent twice in a row.
+    assert fallback_reply("Jane Doe", False, 1) != fallback_reply("Jane Doe", False, 2)
 
 
 def test_prompts_carry_the_conversation_and_the_rules():
     messages = [Message("Jane Doe", "Are you open to work?", True), Message("Charbel", "Hi!", False)]
     user = build_user_prompt("Jane Doe", messages, "Charbel", first_reply=True)
-    system = build_system_prompt("Charbel", "Final-year student.", disclose=True)
+    system = build_system_prompt("Charbel", "Final-year student.", disclose=False)
 
     assert "Jane Doe: Are you open to work?" in user
-    assert "Charbel (you): Hi!" in user
-    assert "first reply" in user
+    assert "You: Hi!" in user
+    assert "not replied in this conversation yet" in user
     assert "Final-year student." in system
-    assert "automated" in system
+    assert "first person" in system
+    assert "automatic reply" not in system
+    assert "automatic reply" in build_system_prompt("Charbel", "x", disclose=True)
+
+
+def test_a_very_long_message_is_cut_in_the_prompt():
+    user = build_user_prompt("Jane", [Message("Jane", "x" * 10_000, True)], "Charbel", True)
+    assert len(user) < 4_000 and "the message continues" in user
+
+
+def test_same_text_ignores_what_the_editor_may_restyle():
+    assert same_text("Sounds good 👍", "sounds good")
+    assert same_text("It's  fine.", "It’s fine")
+    assert not same_text("Sounds good", "Sounds bad")
+    assert same_text("👍", "😊")  # no letters on either side: both non-empty
+    assert not same_text("", "👍")
 
 
 def test_tidy():

@@ -48,18 +48,21 @@ class Settings:
 
     # Behaviour
     dry_run: bool = False  # look and log, but never click Accept or Send
-    poll_seconds: float = 20
+    poll_seconds: float = 10  # pause between polls when nothing is happening
+    active_poll_seconds: float = 3  # pause between polls during a conversation
+    active_minutes: float = 10  # how long after the last activity "during" lasts
     pace: float = 1.0  # multiplier on the human-like pauses (tests use 0)
     typing_delay_ms: float = 15
-    render_wait_ms: float = 6000  # how long to wait for page content to appear
-    disclose_automation: bool = True
+    render_wait_ms: float = 4000  # how long to wait for page content to appear
+    disclose_automation: bool = False  # true = first reply says it is automatic
 
     # Safety limits: a bug or a bot on the other side must not flood anyone.
+    # They are high enough not to silence the bot in a lively conversation.
     max_conversations: int = 15
     max_accepts_per_cycle: int = 20
     max_replies_per_cycle: int = 5
-    max_replies_per_hour: int = 40
-    max_replies_per_thread_per_hour: int = 12
+    max_replies_per_hour: int = 300
+    max_replies_per_thread_per_hour: int = 120
     history_messages: int = 12
 
     # Identity and wording
@@ -93,6 +96,7 @@ def load_settings(**overrides) -> Settings:
         headless=_flag("HEADLESS", defaults.headless),
         dry_run=_flag("DRY_RUN", defaults.dry_run),
         poll_seconds=_number("POLL_SECONDS", defaults.poll_seconds),
+        active_poll_seconds=_number("ACTIVE_POLL_SECONDS", defaults.active_poll_seconds),
         disclose_automation=_flag("DISCLOSE_AUTOMATION", defaults.disclose_automation),
         max_replies_per_hour=int(_number("MAX_REPLIES_PER_HOUR", defaults.max_replies_per_hour)),
         max_replies_per_thread_per_hour=int(

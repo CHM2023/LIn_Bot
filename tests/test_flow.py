@@ -9,7 +9,7 @@ from bot.__main__ import run_cycle
 from bot.browser import is_logged_in, lookup_owner_name
 from bot.invitations import accept_pending
 from bot.messaging import process_inbox, typing_check
-from bot.replies import Responder
+from bot.replies import FALLBACKS, Responder
 from bot.state import State
 from tests.fake_linkedin import OWNER, FakeLinkedIn
 
@@ -151,6 +151,46 @@ def test_hourly_limit_stops_all_replies(session):
     assert len(session.fake.sent) == 1
 
 
+@pytest.mark.parametrize("flags", [{}, {"hashed": True}], ids=["classic", "hashed-class-names"])
+def test_a_picture_with_no_text_still_gets_a_reply(make_session, flags):
+    s = make_session(FakeLinkedIn(**flags))
+    poll(s)
+    s.fake.receive("Jane Doe", "", image=True)
+
+    assert poll(s) == 1
+    assert s.fake.sent == [("Jane Doe", "Auto-reply to Jane Doe")]
+    assert s.responder.calls[0]["messages"][-1].text == "[sent an image, no text]"
+
+
+def test_messages_arriving_while_the_reply_is_written_are_answered_too(session):
+    poll(session)
+    session.fake.receive("Jane Doe", "Hi!")
+    arrivals = iter(["And one more thing: are you free tomorrow?"])
+
+    def reply(contact, messages, owner="", first_reply=True):
+        session.responder.calls.append({"messages": messages})
+        late = next(arrivals, None)
+        if late:  # the other person keeps typing while the bot writes
+            session.fake.receive("Jane Doe", late)
+            session.page.evaluate("text => window.fakeIncoming(text)", late)
+        return f"Reply to {len([m for m in messages if m.incoming])} message(s)"
+
+    session.responder.reply = reply
+
+    assert poll(session) == 1
+    assert session.fake.sent == [("Jane Doe", "Reply to 2 message(s)")]  # one reply, covering both
+    assert poll(session) == 0
+
+
+def test_reply_with_emoji_and_another_script_is_sent(session):
+    session.responder.text = "مرحبا! Sounds good 👍"
+    poll(session)
+    session.fake.receive("Jane Doe", "مرحبا")
+    poll(session)
+
+    assert session.fake.sent == [("Jane Doe", "مرحبا! Sounds good 👍")]
+
+
 def test_multi_line_reply_is_sent_as_one_message(session):
     session.responder.text = "Thanks for reaching out.\nCharbel will reply soon."
     poll(session)
@@ -230,10 +270,8 @@ def test_fallback_reply_without_an_api_key(session, monkeypatch):
     session.fake.receive("Jane Doe", "Hi!")
     poll(session)
 
-    assert session.fake.sent == [
-        ("Jane Doe", "Hi Jane, thanks for your message! This is an automated reply. "
-                     "Charbel will get back to you personally soon.")
-    ]
+    assert len(session.fake.sent) == 1
+    assert session.fake.sent[0][1] in {text.format(name=" Jane") for text in FALLBACKS}
 
 
 # --- the whole cycle ---------------------------------------------------------
