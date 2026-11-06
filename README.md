@@ -7,6 +7,12 @@ A bot that runs on your own LinkedIn account and, by itself:
 
 > **Note.** This file and [README_DETAILED.md](README_DETAILED.md) were written on 6 November 2026, **before the timed test was started**. They describe the bot as it was at that point (branch `before-start`). Changes made during the test are on `after-start` and may not be reflected here.
 
+## Try it
+
+The bot runs on a dedicated test account: **[Jack Helou](https://www.linkedin.com/in/jack-helou-a1492a449/)**. Send it a connection request, then a message once it has accepted. It answers while the bot is running.
+
+The account was created for this exercise so that automation would not put the author's personal profile at risk. Author: [Charbel Hajj Moussa](https://www.linkedin.com/in/charbelhajjmoussa7/).
+
 ## Setup (once)
 
 You need Windows, Python 3.10 or newer, and Google Chrome.
