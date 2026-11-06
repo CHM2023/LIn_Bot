@@ -1,0 +1,12 @@
+# Never commit these: they hold the live LinkedIn session and API keys.
+.session/
+.env
+
+# Runtime data (state, logs, page snapshots with private messages)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
